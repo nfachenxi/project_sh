@@ -23,7 +23,7 @@ sudo bash -c "$(curl -fsSL <脚本的URL地址>)"
 
 | 脚本名称            | 功能描述                                                     | 一键执行命令                                                 |
 | :------------------ | :----------------------------------------------------------- | :----------------------------------------------------------- |
-| **Gemini 轮询代理** | 一键部署 Gemini API 密钥轮询代理服务，通过号池实现API的稳定、免费调用。支持 OpenAI 格式。 | **Gitee (国内推荐):** <br> `sudo bash -c "$(curl -fsSL https://gitee.com/nfachenxi/project_sh/raw/master/setup_gemini_proxy.sh)"` <br><br> **GitHub (海外推荐):** <br> `sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/nfachenxi/project_sh/main/setup_gemini_proxy.sh)"` |
+| **Gemini 轮询代理** | 一键部署 Gemini API 密钥轮询代理服务，通过号池实现API的稳定、免费调用。支持 OpenAI 格式。 | **Gitee (国内推荐):** <br> `sudo bash -c "$(curl -fsSL https://gitee.com/nfasystem/project_sh/blob/main/deployment/setup_gemini_proxy.sh)"` <br><br> **GitHub (海外推荐):** <br> `sudo bash -c "$(curl -fsSL https://github.com/nfachenxi/project_sh/blob/main/deployment/setup_gemini_proxy.sh)"` |
 | *下一个脚本...*     | *这里是下一个脚本的简要描述...*                              | `...`                                                        |
 
 
@@ -47,3 +47,4 @@ sudo bash -c "$(curl -fsSL <脚本的URL地址>)"
 
 - **[snailyp/gemini-balance](https://github.com/snailyp/gemini-balance)**: Gemini API 轮询代理的核心项目。
 - **[SuperManito/LinuxMirrors](https://github.com/SuperManito/LinuxMirrors)**: 提供强大易用的国内镜像源一键更换脚本（`linuxmirrors.cn`）。
+
