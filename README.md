@@ -21,10 +21,11 @@ sudo bash -c "$(curl -fsSL <脚本的URL地址>)"
 
 ## 📜 脚本列表
 
-| 脚本名称            | 功能描述                                                     | 一键执行命令                                                 |
-| :------------------ | :----------------------------------------------------------- | :----------------------------------------------------------- |
-| **Gemini 轮询代理** | 一键部署 Gemini API 密钥轮询代理服务，通过号池实现API的稳定、免费调用。支持 OpenAI 格式。 | **Gitee (国内推荐):** <br> `sudo bash -c "$(curl -fsSL https://gitee.com/nfasystem/project_sh/blob/main/deployment/setup_gemini_proxy.sh)"` <br><br> **GitHub (海外推荐):** <br> `sudo bash -c "$(curl -fsSL https://github.com/nfachenxi/project_sh/blob/main/deployment/setup_gemini_proxy.sh)"` |
-| *下一个脚本...*     | *这里是下一个脚本的简要描述...*                              | `...`                                                        |
+| 脚本名称               | 功能描述                                                     | 一键执行命令                                                 |
+| :--------------------- | :----------------------------------------------------------- | :----------------------------------------------------------- |
+| **Gemini 轮询代理**    | 一键部署 Gemini API 密钥轮询代理服务，通过号池实现API的稳定、免费调用。支持 OpenAI 格式。 | **Gitee (国内推荐):** <br> `sudo bash -c "$(curl -fsSL https://gitee.com/nfasystem/project_sh/raw/main/deployment/setup_gemini_proxy.sh)"` <br><br> **GitHub (海外推荐):** <br> `sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/nfachenxi/project_sh/main/deployment/setup_gemini_proxy.sh)"` |
+| **Nextcloud 私有云盘** | 提供新手和进阶两种模式，一键部署功能完善的 Nextcloud 私有云盘。进阶模式包含NPM反代、HTTPS及性能优化。 | **Gitee (国内推荐):** <br> `sudo bash -c "$(curl -fsSL https://gitee.com/nfasystem/project_sh/raw/main/deployment/setup_nextcloud.sh)"` <br><br> **GitHub (海外推荐):** <br> `sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/nfachenxi/project_sh/main/deployment/setup_nextcloud.sh)"` |
+| *下一个脚本...*        | *这里是下一个脚本的简要描述...*                              | `...`                                                        |
 
 
 ---
@@ -47,4 +48,6 @@ sudo bash -c "$(curl -fsSL <脚本的URL地址>)"
 
 - **[snailyp/gemini-balance](https://github.com/snailyp/gemini-balance)**: Gemini API 轮询代理的核心项目。
 - **[SuperManito/LinuxMirrors](https://github.com/SuperManito/LinuxMirrors)**: 提供强大易用的国内镜像源一键更换脚本（`linuxmirrors.cn`）。
+- **[Nextcloud](https://github.com/nextcloud/server)**: 强大的开源私有云盘解决方案。
+- **[Nginx Proxy Manager](https://github.com/NginxProxyManager/nginx-proxy-manager)**: 提供简单易用的图形化界面来管理反向代理和SSL证书。
 
