@@ -26,6 +26,7 @@ sudo bash -c "$(curl -fsSL <脚本的URL地址>)"
 | **Gemini 轮询代理**          | 一键部署 Gemini API 密钥轮询代理服务，通过号池实现API的稳定、免费调用。支持 OpenAI 格式。 | **Gitee (国内推荐):** <br> `sudo bash -c "$(curl -fsSL https://gitee.com/nfasystem/project_sh/raw/main/deployment/setup_gemini_proxy.sh)"` <br><br> **GitHub (海外推荐):** <br> `sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/nfachenxi/project_sh/main/deployment/setup_gemini_proxy.sh)"` |
 | **Nextcloud 私有云盘**       | 提供新手和进阶两种模式，一键部署功能完善的 Nextcloud 私有云盘。进阶模式包含NPM反代、HTTPS及性能优化。 | **Gitee (国内推荐):** <br> `sudo bash -c "$(curl -fsSL https://gitee.com/nfasystem/project_sh/raw/main/deployment/setup_nextcloud.sh)"` <br><br> **GitHub (海外推荐):** <br> `sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/nfachenxi/project_sh/main/deployment/setup_nextcloud.sh)"` |
 | **Koishi + NapCat QQ机器人** | 一键部署基于 NapCat 的 Koishi QQ 机器人，包含数据库，提供完整的交互式配置引导。 | **Gitee (国内推荐):** <br> `sudo bash -c "$(curl -fsSL https://gitee.com/nfasystem/project_sh/raw/main/deployment/setup_koishi_napcat.sh)"` <br><br> **GitHub (海外推荐):** <br> `sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/nfachenxi/project_sh/main/deployment/setup_koishi_napcat.sh)"` |
+| **PMail 个人域名邮箱**       | 一键部署 PMail 个人域名邮箱服务器。交互式引导完成环境准备、数据库配置，并提供专业的 DNS 和 PTR 记录设置指南，助您获得高分邮件服务。 | **Gitee (国内推荐):** <br> `sudo bash -c "$(curl -fsSL https://gitee.com/nfasystem/project_sh/raw/main/deployment/setup_pmail.sh)"` <br><br> **GitHub (海外推荐):** <br> `sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/nfachenxi/project_sh/main/deployment/setup_pmail.sh)"` |
 
 
 ---
@@ -52,3 +53,4 @@ sudo bash -c "$(curl -fsSL <脚本的URL地址>)"
 - **[Nginx Proxy Manager](https://github.com/NginxProxyManager/nginx-proxy-manager)**: 提供简单易用的图形化界面来管理反向代理和SSL证书。
 - **[Koishi](https://github.com/koishijs/koishi)**: 强大的机器人框架，拥有丰富的插件生态。
 - **[NapCat-Docker](https://github.com/NapNeko/NapCat-Docker)**: 提供稳定、易于部署的 NapCat Docker 镜像。
+- **[Jinnrry/PMail](https://github.com/Jinnrry/PMail)**: 追求极简部署、极致资源占用的个人域名邮箱服务器。
