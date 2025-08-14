@@ -310,7 +310,7 @@ function deploy_napcat() {
     cat > "$project_dir/docker-compose.yml" << EOF
 services:
   napcat:
-    image: mlikiowa/napcat-docker:latest
+    image: docker.gh-proxy.com/mlikiowa/napcat-docker:latest
     container_name: napcat
     restart: always
     network_mode: bridge
