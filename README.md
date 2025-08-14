@@ -55,3 +55,4 @@ sudo bash -c "$(curl -fsSL <脚本的URL地址>)"
 - **[Koishi](https://github.com/koishijs/koishi)**: 强大的机器人框架，拥有丰富的插件生态。
 - **[NapCat-Docker](https://github.com/NapNeko/NapCat-Docker)**: 提供稳定、易于部署的 NapCat Docker 镜像。
 - **[Jinnrry/PMail](https://github.com/Jinnrry/PMail)**: 追求极简部署、极致资源占用的个人域名邮箱服务器。
+- **[LiteyukiStudio/LiteyukiBot](https://github.com/LiteyukiStudio/LiteyukiBot)**: 一个综合性的聊天机器人应用及管理框架。
