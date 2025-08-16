@@ -353,8 +353,10 @@ EOF
     print_color "$GREEN" ".env.prod 文件创建成功。"
 
     print_color "$YELLOW" "正在创建名为 'lightsnow-bot' 的 screen 后台会话..."
-    # 使用 screen -S <会话名> -d -m <命令> 来在后台启动
-    screen -S lightsnow-bot -d -m "${project_abs_path}/venv/bin/python" "main.py"
+    # 关键修复：使用 sh -c 先切换到正确的工作目录，再执行 python 命令
+    # 这确保了机器人能正确加载其配置文件和插件
+    local start_cmd="cd '${project_abs_path}' && '${project_abs_path}/venv/bin/python' main.py"
+    screen -S lightsnow-bot -d -m sh -c "$start_cmd"
     
     # 检查会话是否成功创建
     sleep 3
@@ -366,6 +368,7 @@ EOF
         exit 1
     fi
 }
+
 
 
 function deploy_napcat() {
