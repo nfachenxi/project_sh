@@ -379,8 +379,8 @@ COPY . .
 EXPOSE $BOT_PORT
 
 # 启动命令
-# 关键修复：nb run 命令会自动读取 .env 文件，无需额外参数
-CMD ["nb", "run"]
+# 关键修复：改用更直接的 python bot.py 启动，避免 nb run 的路径问题
+CMD ["python", "bot.py"]
 EOF
     # 将 IS_CHINA 变量传递给 Docker build 过程
     sed -i "s/IS_CHINA=1/IS_CHINA=${IS_CHINA}/" Dockerfile
@@ -388,8 +388,6 @@ EOF
     
     cd ..
 }
-
-
 
 
 # 创建 docker-compose.yml 文件并部署
