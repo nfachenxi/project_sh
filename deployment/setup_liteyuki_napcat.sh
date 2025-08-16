@@ -4,7 +4,7 @@
 set -e
 
 #================================================================================
-# 轻雪机器人 + NapCat 一键部署脚本 (v2 - 带自动清理)
+# 轻雪机器人 + NapCat 一键部署脚本 (v3 - 优化国内下载体验)
 #
 # 脚本说明:
 #   本脚本为电脑小白用户设计，旨在提供一个自动化的轻雪机器人 + NapCat 部署方案。
@@ -17,7 +17,7 @@ set -e
 #      - 根据用户服务器位置智能优化软件源和 Docker 镜像加速
 #   2. 自动化部署
 #      - 交互式收集少量必要配置
-#      - 自动拉取轻雪机器人源码
+#      - 自动拉取轻雪机器人源码，并为国内用户提供清晰的加速指引和默认选项
 #      - 自动生成 Dockerfile 和 Docker Compose 配置文件
 #      - 一键部署轻雪机器人和 Napcat 适配器
 #   3. 详尽的配置指引
@@ -272,28 +272,31 @@ function clone_robot_repo() {
         return
     fi
 
-    local repo_url="https://github.com/Ikaros-521/Lihgtsnow-Bot.git"
-    local clone_cmd="git clone $repo_url $PROJECT_DIR"
+    local official_repo_url="https://github.com/Ikaros-521/Lihgtsnow-Bot.git"
+    local clone_url="$official_repo_url" # 默认使用官方地址
 
     if [ $IS_CHINA -eq 1 ]; then
-        print_color "$YELLOW" "您位于国内，访问 GitHub 可能较慢。"
-        print_color "$YELLOW" "您可以选择使用代理加速，或直接连接。"
-        print_color "$YELLOW" "代理获取网站示例: https://gh-proxy.com/ 或 https://github.akams.cn/"
-        read -p "请输入完整的代理地址 (如 https://gh-proxy.com/)，或直接按回车键直连: " proxy_url
+        print_color "$YELLOW" "您位于国内，为加速下载，推荐使用代理或镜像源。"
+        print_color "$YELLOW" "轻雪机器人的官方仓库地址是: ${GREEN}$official_repo_url${NC}"
+        print_color "$YELLOW" "您可以将此地址粘贴到 GitHub 代理网站 (如 https://gh-proxy.com/ 或 https://github.akams.cn/) 来生成一个加速地址。"
         
-        if [ -n "$proxy_url" ]; then
-            # 确保代理地址以 / 结尾
-            [[ "$proxy_url" != */ ]] && proxy_url="$proxy_url/"
-            clone_cmd="git clone ${proxy_url}${repo_url} $PROJECT_DIR"
-            print_color "$GREEN" "将通过代理: $proxy_url 进行下载。"
-        else
-            print_color "$GREEN" "将尝试直接连接 GitHub 下载。"
-        fi
+        # 提供一个默认的、方便的代理地址
+        local default_proxy_url="https://ghproxy.com/${official_repo_url}"
+        print_color "$YELLOW" "下方输入框已为您准备好一个默认代理地址，您可以直接回车使用。"
+
+        read -p "请输入完整的克隆地址 (留空则使用默认代理): " custom_clone_url
+        clone_url=${custom_clone_url:-$default_proxy_url}
     fi
 
+    local clone_cmd="git clone $clone_url $PROJECT_DIR"
+    
     print_color "$YELLOW" "正在执行: $clone_cmd"
-    $clone_cmd
-    print_color "$GREEN" "轻雪机器人源码下载成功，位于目录: $PROJECT_DIR"
+    if $clone_cmd; then
+        print_color "$GREEN" "轻雪机器人源码下载成功，位于目录: $PROJECT_DIR"
+    else
+        print_color "$RED" "源码下载失败！请检查网络连接或您输入的克隆地址是否正确。"
+        exit 1
+    fi
 }
 
 #==============================================================================
