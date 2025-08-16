@@ -43,6 +43,7 @@ SERVER_PUBLIC_IP=""
 PROJECT_DIR="lightsnow-project"
 BOT_PORT=20216 # 固定使用官方默认端口
 BOT_TOKEN=""
+SUPERUSER_QQ=""
 SCRIPT_SUCCESS=0
 
 #==============================================================================
@@ -55,10 +56,14 @@ function cleanup_on_failure() {
         print_color "$RED" "\n\n脚本未能成功完成或被中断。"
         print_color "$YELLOW" "正在自动清理残留环境，请稍候..."
 
-        # 清理 screen 会话
-        if command_exists screen && screen -ls | grep -q "lightsnow-bot"; then
-            print_color "$YELLOW" "正在终止 screen 会话 'lightsnow-bot'..."
-            screen -S lightsnow-bot -X quit || true
+        # 清理 systemd 服务
+        local SERVICE_FILE="/etc/systemd/system/lightsnow-bot.service"
+        if [ -f "$SERVICE_FILE" ]; then
+            print_color "$YELLOW" "正在停止并移除 systemd 服务..."
+            systemctl stop lightsnow-bot || true
+            systemctl disable lightsnow-bot || true
+            rm -f "$SERVICE_FILE"
+            systemctl daemon-reload
         fi
 
         # 清理 Docker (Napcat)
@@ -78,7 +83,6 @@ function cleanup_on_failure() {
         print_color "$GREEN" "环境清理完毕。"
     fi
 }
-
 
 # 设置 trap，捕获退出(EXIT)、中断(INT)、终止(TERM)信号以触发清理函数
 trap cleanup_on_failure EXIT INT TERM
@@ -178,8 +182,8 @@ function install_dependencies() {
     print_color "$BLUE" "\n--- 2. 安装基础依赖 ---"
     apt-get update >/dev/null 2>&1
     
-    # 安装 git, curl, 和 screen
-    for pkg in git curl screen; do
+    # 安装 git 和 curl
+    for pkg in git curl; do
         if ! command_exists $pkg; then
             print_color "$YELLOW" "正在安装 $pkg..."
             apt-get install -y $pkg
@@ -211,7 +215,6 @@ function install_dependencies() {
     apt-get install -y libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libatspi2.0-0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2
     print_color "$GREEN" "浏览器依赖安装完成。"
 }
-
 
 function install_docker() {
     print_color "$BLUE" "\n--- 3. 安装 Docker 环境 (用于 Napcat) ---"
@@ -260,7 +263,20 @@ function collect_user_config() {
     print_color "$YELLOW" "为了安全，建议为机器人连接设置一个访问令牌 (Access Token)。"
     read -p "请输入您的访问令牌 (留空将不设置): " token_input
     BOT_TOKEN=${token_input}
+
+    print_color "$YELLOW" "\n请输入您的 QQ 号码，以设置为机器人的超级管理员 (Superuser)。"
+    while true; do
+        read -p "请输入您的 QQ 号: " qq_input
+        if [[ "$qq_input" =~ ^[1-9][0-9]{4,10}$ ]]; then
+            SUPERUSER_QQ=$qq_input
+            print_color "$GREEN" "超级管理员 QQ 已设置为: $SUPERUSER_QQ"
+            break
+        else
+            print_color "$RED" "无效的 QQ 号码，请重新输入。"
+        fi
+    done
 }
+
 
 function clone_robot_repo() {
     print_color "$BLUE" "\n--- 5. 下载轻雪机器人源码 ---"
@@ -331,9 +347,9 @@ function setup_python_environment() {
     cd ..
 }
 
-# 创建并启动 screen 会话
-function create_and_start_screen_session() {
-    print_color "$BLUE" "\n--- 7. 创建并启动机器人后台会话 (Screen) ---"
+# 创建并启动 systemd 服务
+function create_and_start_systemd_service() {
+    print_color "$BLUE" "\n--- 7. 创建并启动机器人后台服务 (Systemd) ---"
     
     local project_abs_path
     project_abs_path=$(realpath "$PROJECT_DIR")
@@ -345,30 +361,48 @@ ENVIRONMENT=prod
 HOST=0.0.0.0
 PORT=$BOT_PORT
 LOG_LEVEL=INFO
-SUPERUSERS=["123456789"] # 请在机器人运行后通过指令添加
+SUPERUSERS=["${SUPERUSER_QQ}"]
 NICKNAME=["轻雪"]
 COMMAND_START=["/"]
 ACCESS_TOKEN=$BOT_TOKEN
 EOF
     print_color "$GREEN" ".env.prod 文件创建成功。"
 
-    print_color "$YELLOW" "正在创建名为 'lightsnow-bot' 的 screen 后台会话..."
-    # 关键修复：使用 sh -c 先切换到正确的工作目录，再执行 python 命令
-    # 这确保了机器人能正确加载其配置文件和插件
-    local start_cmd="cd '${project_abs_path}' && '${project_abs_path}/venv/bin/python' main.py"
-    screen -S lightsnow-bot -d -m sh -c "$start_cmd"
-    
-    # 检查会话是否成功创建
+    print_color "$YELLOW" "正在创建 systemd 服务文件..."
+    local service_file="/etc/systemd/system/lightsnow-bot.service"
+    cat > "$service_file" << EOF
+[Unit]
+Description=Lightsnow QQ Bot Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=${project_abs_path}
+ExecStart=${project_abs_path}/venv/bin/python main.py
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    print_color "$GREEN" "Systemd 服务文件创建成功: $service_file"
+
+    print_color "$YELLOW" "正在重载 systemd 并启动服务..."
+    systemctl daemon-reload
+    systemctl enable lightsnow-bot
+    systemctl start lightsnow-bot
+
+    # 等待几秒钟让服务有时间启动或失败
     sleep 3
-    if screen -ls | grep -q "lightsnow-bot"; then
-        print_color "$GREEN" "✅ 轻雪机器人后台会话已成功创建！"
+    if systemctl is-active --quiet lightsnow-bot; then
+        print_color "$GREEN" "✅ 轻雪机器人服务已成功启动！"
     else
-        print_color "$RED" "❌ 轻雪机器人后台会话创建失败！"
-        print_color "$YELLOW" "请尝试手动进入项目目录 '${PROJECT_DIR}' 并运行 './venv/bin/python main.py' 来排查问题。"
+        print_color "$RED" "❌ 轻雪机器人服务启动失败！"
+        print_color "$YELLOW" "请使用 'journalctl -u lightsnow-bot -n 50' 命令查看详细错误日志。"
         exit 1
     fi
 }
-
 
 
 function deploy_napcat() {
@@ -442,11 +476,12 @@ function final_instructions() {
 
     print_color "$BLUE" "\n====================== 管理与维护 ======================"
     echo -e "您的所有项目文件都位于当前目录下的: ${YELLOW}${PROJECT_DIR}${NC}"
-    echo -e "\n--- 轻雪机器人管理 (Screen) ---"
-    echo -e "  - ${RED}查看实时日志:${NC} ${YELLOW}screen -r lightsnow-bot${NC}"
-    echo -e "    (进入后，按 ${GREEN}Ctrl+A${NC} 再按 ${GREEN}D${NC} 即可安全退出，机器人会继续在后台运行)"
-    echo -e "  - 停止服务: ${YELLOW}screen -S lightsnow-bot -X quit${NC}"
-    echo -e "  - 查看所有会话: ${YELLOW}screen -ls${NC}"
+    echo -e "\n--- 轻雪机器人管理 (Systemd) ---"
+    echo -e "  - 查看状态: ${YELLOW}systemctl status lightsnow-bot${NC}"
+    echo -e "  - 启动服务: ${YELLOW}systemctl start lightsnow-bot${NC}"
+    echo -e "  - 停止服务: ${YELLOW}systemctl stop lightsnow-bot${NC}"
+    echo -e "  - 重启服务: ${YELLOW}systemctl restart lightsnow-bot${NC}"
+    echo -e "  - ${RED}查看实时日志:${NC} ${YELLOW}journalctl -u lightsnow-bot -f${NC} (按 Ctrl+C 退出)"
     
     echo -e "\n--- Napcat 管理 (Docker) ---"
     echo -e "  - (先进入项目目录: cd ${PROJECT_DIR})"
@@ -455,7 +490,6 @@ function final_instructions() {
     echo -e "  - 查看日志: ${YELLOW}docker compose logs -f napcat${NC}"
     print_color "$BLUE" "========================================================\n"
 }
-
 
 #==============================================================================
 # 主函数
@@ -475,7 +509,7 @@ function main() {
     collect_user_config
     clone_robot_repo
     setup_python_environment
-    create_and_start_screen_session
+    create_and_start_systemd_service
     deploy_napcat
     final_instructions
 
