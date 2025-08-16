@@ -366,10 +366,11 @@ WORKDIR /app
 COPY requirements.txt .
 
 # 安装依赖，如果在中国则使用清华镜像源
+# 关键修复：在这里额外安装 nonebot-cli
 RUN if [ "$IS_CHINA" = "1" ]; then \
-        pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple; \
+        pip install --no-cache-dir nonebot-cli -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple; \
     else \
-        pip install --no-cache-dir -r requirements.txt; \
+        pip install --no-cache-dir nonebot-cli -r requirements.txt; \
     fi
 
 # 复制项目所有文件
@@ -387,6 +388,7 @@ EOF
     
     cd ..
 }
+
 
 # 创建 docker-compose.yml 文件并部署
 function create_and_deploy() {
