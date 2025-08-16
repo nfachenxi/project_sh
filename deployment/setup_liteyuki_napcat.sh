@@ -55,14 +55,10 @@ function cleanup_on_failure() {
         print_color "$RED" "\n\n脚本未能成功完成或被中断。"
         print_color "$YELLOW" "正在自动清理残留环境，请稍候..."
 
-        # 清理 systemd 服务
-        local SERVICE_FILE="/etc/systemd/system/lightsnow-bot.service"
-        if [ -f "$SERVICE_FILE" ]; then
-            print_color "$YELLOW" "正在停止并移除 systemd 服务..."
-            systemctl stop lightsnow-bot || true
-            systemctl disable lightsnow-bot || true
-            rm -f "$SERVICE_FILE"
-            systemctl daemon-reload
+        # 清理 screen 会话
+        if command_exists screen && screen -ls | grep -q "lightsnow-bot"; then
+            print_color "$YELLOW" "正在终止 screen 会话 'lightsnow-bot'..."
+            screen -S lightsnow-bot -X quit || true
         fi
 
         # 清理 Docker (Napcat)
@@ -82,6 +78,7 @@ function cleanup_on_failure() {
         print_color "$GREEN" "环境清理完毕。"
     fi
 }
+
 
 # 设置 trap，捕获退出(EXIT)、中断(INT)、终止(TERM)信号以触发清理函数
 trap cleanup_on_failure EXIT INT TERM
@@ -181,8 +178,8 @@ function install_dependencies() {
     print_color "$BLUE" "\n--- 2. 安装基础依赖 ---"
     apt-get update >/dev/null 2>&1
     
-    # 安装 git 和 curl
-    for pkg in git curl; do
+    # 安装 git, curl, 和 screen
+    for pkg in git curl screen; do
         if ! command_exists $pkg; then
             print_color "$YELLOW" "正在安装 $pkg..."
             apt-get install -y $pkg
@@ -214,6 +211,7 @@ function install_dependencies() {
     apt-get install -y libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libatspi2.0-0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2
     print_color "$GREEN" "浏览器依赖安装完成。"
 }
+
 
 function install_docker() {
     print_color "$BLUE" "\n--- 3. 安装 Docker 环境 (用于 Napcat) ---"
@@ -333,8 +331,9 @@ function setup_python_environment() {
     cd ..
 }
 
-function create_and_start_systemd_service() {
-    print_color "$BLUE" "\n--- 7. 创建并启动机器人后台服务 (Systemd) ---"
+# 创建并启动 screen 会话
+function create_and_start_screen_session() {
+    print_color "$BLUE" "\n--- 7. 创建并启动机器人后台会话 (Screen) ---"
     
     local project_abs_path
     project_abs_path=$(realpath "$PROJECT_DIR")
@@ -353,41 +352,21 @@ ACCESS_TOKEN=$BOT_TOKEN
 EOF
     print_color "$GREEN" ".env.prod 文件创建成功。"
 
-    print_color "$YELLOW" "正在创建 systemd 服务文件..."
-    local service_file="/etc/systemd/system/lightsnow-bot.service"
-    cat > "$service_file" << EOF
-[Unit]
-Description=Lightsnow QQ Bot Service
-After=network.target
-
-[Service]
-Type=simple
-User=root
-WorkingDirectory=${project_abs_path}
-ExecStart=${project_abs_path}/venv/bin/python main.py
-Restart=on-failure
-RestartSec=5s
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    print_color "$GREEN" "Systemd 服务文件创建成功: $service_file"
-
-    print_color "$YELLOW" "正在重载 systemd 并启动服务..."
-    systemctl daemon-reload
-    systemctl enable lightsnow-bot
-    systemctl start lightsnow-bot
-
-    # 等待几秒钟让服务有时间启动或失败
+    print_color "$YELLOW" "正在创建名为 'lightsnow-bot' 的 screen 后台会话..."
+    # 使用 screen -S <会话名> -d -m <命令> 来在后台启动
+    screen -S lightsnow-bot -d -m "${project_abs_path}/venv/bin/python" "main.py"
+    
+    # 检查会话是否成功创建
     sleep 3
-    if systemctl is-active --quiet lightsnow-bot; then
-        print_color "$GREEN" "✅ 轻雪机器人服务已成功启动！"
+    if screen -ls | grep -q "lightsnow-bot"; then
+        print_color "$GREEN" "✅ 轻雪机器人后台会话已成功创建！"
     else
-        print_color "$RED" "❌ 轻雪机器人服务启动失败！"
-        print_color "$YELLOW" "请使用 'journalctl -u lightsnow-bot -n 50' 命令查看详细错误日志。"
+        print_color "$RED" "❌ 轻雪机器人后台会话创建失败！"
+        print_color "$YELLOW" "请尝试手动进入项目目录 '${PROJECT_DIR}' 并运行 './venv/bin/python main.py' 来排查问题。"
         exit 1
     fi
 }
+
 
 function deploy_napcat() {
     print_color "$BLUE" "\n--- 8. 部署 Napcat 适配器 (Docker) ---"
@@ -460,12 +439,11 @@ function final_instructions() {
 
     print_color "$BLUE" "\n====================== 管理与维护 ======================"
     echo -e "您的所有项目文件都位于当前目录下的: ${YELLOW}${PROJECT_DIR}${NC}"
-    echo -e "\n--- 轻雪机器人管理 (Systemd) ---"
-    echo -e "  - 查看状态: ${YELLOW}systemctl status lightsnow-bot${NC}"
-    echo -e "  - 启动服务: ${YELLOW}systemctl start lightsnow-bot${NC}"
-    echo -e "  - 停止服务: ${YELLOW}systemctl stop lightsnow-bot${NC}"
-    echo -e "  - 重启服务: ${YELLOW}systemctl restart lightsnow-bot${NC}"
-    echo -e "  - ${RED}查看实时日志:${NC} ${YELLOW}journalctl -u lightsnow-bot -f${NC} (按 Ctrl+C 退出)"
+    echo -e "\n--- 轻雪机器人管理 (Screen) ---"
+    echo -e "  - ${RED}查看实时日志:${NC} ${YELLOW}screen -r lightsnow-bot${NC}"
+    echo -e "    (进入后，按 ${GREEN}Ctrl+A${NC} 再按 ${GREEN}D${NC} 即可安全退出，机器人会继续在后台运行)"
+    echo -e "  - 停止服务: ${YELLOW}screen -S lightsnow-bot -X quit${NC}"
+    echo -e "  - 查看所有会话: ${YELLOW}screen -ls${NC}"
     
     echo -e "\n--- Napcat 管理 (Docker) ---"
     echo -e "  - (先进入项目目录: cd ${PROJECT_DIR})"
@@ -474,6 +452,7 @@ function final_instructions() {
     echo -e "  - 查看日志: ${YELLOW}docker compose logs -f napcat${NC}"
     print_color "$BLUE" "========================================================\n"
 }
+
 
 #==============================================================================
 # 主函数
