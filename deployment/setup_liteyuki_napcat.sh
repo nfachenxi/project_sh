@@ -472,7 +472,7 @@ function main() {
     collect_user_config
     clone_robot_repo
     setup_python_environment
-    create_and_start_systemd_service
+    create_and_start_screen_session
     deploy_napcat
     final_instructions
 
