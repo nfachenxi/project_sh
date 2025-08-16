@@ -201,8 +201,8 @@ function install_dependencies() {
     print_color "$BLUE" "\n--- 2. 安装基础依赖 ---"
     apt-get update >/dev/null 2>&1
     
-    # 增加 python3-venv 用于创建虚拟环境
-    for pkg in git curl python3-venv; do
+    # 安装 git 和 curl，它们是可执行命令
+    for pkg in git curl; do
         if ! command_exists $pkg; then
             print_color "$YELLOW" "正在安装 $pkg..."
             apt-get install -y $pkg
@@ -215,7 +215,23 @@ function install_dependencies() {
             print_color "$GREEN" "$pkg 已安装。"
         fi
     done
+
+    # 单独处理 python3-venv，因为它是一个包而不是一个命令
+    # 使用 dpkg -s 来检查包的安装状态，这是更可靠的方法
+    if ! dpkg -s python3-venv &> /dev/null; then
+        print_color "$YELLOW" "正在安装 python3-venv..."
+        apt-get install -y python3-venv
+        # 安装后再次验证
+        if ! dpkg -s python3-venv &> /dev/null; then
+            print_color "$RED" "python3-venv 安装失败，请手动安装后再运行此脚本。"
+            exit 1
+        fi
+        print_color "$GREEN" "python3-venv 安装成功。"
+    else
+        print_color "$GREEN" "python3-venv 已安装。"
+    fi
 }
+
 
 # 安装 Docker
 function install_docker() {
