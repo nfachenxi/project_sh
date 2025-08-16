@@ -267,34 +267,64 @@ function collect_user_config() {
 function clone_robot_repo() {
     print_color "$BLUE" "\n--- 5. 下载轻雪机器人源码 ---"
     
+    # 检查目标目录是否存在，提供更灵活的选项
     if [ -d "$PROJECT_DIR" ]; then
-        print_color "$YELLOW" "目录 '$PROJECT_DIR' 已存在，跳过下载。"
-        return
+        print_color "$YELLOW" "目录 '$PROJECT_DIR' 已存在。"
+        read -p "是否删除现有目录并重新下载? [y/N] " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            print_color "$YELLOW" "正在删除现有目录..."
+            if ! rm -rf "$PROJECT_DIR"; then
+                print_color "$RED" "删除现有目录失败，请检查权限"
+                exit 1
+            fi
+        else
+            print_color "$YELLOW" "已跳过下载步骤"
+            return 0
+        fi
     fi
 
     local official_repo_url="https://github.com/Ikaros-521/Lihgtsnow-Bot.git"
-    local clone_url="$official_repo_url" # 默认使用官方地址
+    local clone_url="$official_repo_url"  # 默认使用官方地址
+    # 使用第一个代码中的官方镜像源作为默认代理
+    local default_proxy_url="https://git.liteyuki.org/bot/app"
 
+    # 显示仓库信息
+    print_color "$YELLOW" "轻雪机器人的官方仓库地址是: ${GREEN}$official_repo_url${NC}"
+
+    # 国内用户特殊处理
     if [ $IS_CHINA -eq 1 ]; then
-        print_color "$YELLOW" "您位于国内，为加速下载，推荐使用代理或镜像源。"
-        print_color "$YELLOW" "轻雪机器人的官方仓库地址是: ${GREEN}$official_repo_url${NC}"
-        print_color "$YELLOW" "您可以将此地址粘贴到 GitHub 代理网站 (如 https://gh-proxy.com/ 或 https://github.akams.cn/) 来生成一个加速地址。"
+        print_color "$YELLOW" "检测到您位于国内，推荐使用代理加速下载。"
+        print_color "$YELLOW" "可用的代理服务: https://gh-proxy.com/ 或 https://github.akams.cn/"
+        print_color "$YELLOW" "官方镜像源: ${GREEN}$default_proxy_url${NC}"
         
-        # 提供一个默认的、方便的代理地址
-        local default_proxy_url="https://ghproxy.com/${official_repo_url}"
-        print_color "$YELLOW" "下方输入框已为您准备好一个默认代理地址，您可以直接回车使用。"
-
-        read -p "请输入完整的克隆地址 (留空则使用默认代理): " custom_clone_url
-        clone_url=${custom_clone_url:-$default_proxy_url}
+        read -p "请输入克隆地址 (留空使用官方镜像源，输入'0'使用官方地址): " custom_clone_url
+        
+        # 处理用户输入
+        if [ -z "$custom_clone_url" ]; then
+            clone_url="$default_proxy_url"
+        elif [ "$custom_clone_url" = "0" ]; then
+            clone_url="$official_repo_url"
+        else
+            clone_url="$custom_clone_url"
+        fi
     fi
 
-    local clone_cmd="git clone $clone_url $PROJECT_DIR"
-    
-    print_color "$YELLOW" "正在执行: $clone_cmd"
-    if $clone_cmd; then
-        print_color "$GREEN" "轻雪机器人源码下载成功，位于目录: $PROJECT_DIR"
+    # 显示克隆信息并执行克隆，增加深度参数加快速度
+    print_color "$YELLOW" "正在从 ${GREEN}$clone_url${NC} 克隆代码..."
+    if git clone --depth=1 "$clone_url" "$PROJECT_DIR"; then
+        print_color "$GREEN" "✅ 轻雪机器人源码下载成功，位于目录: $PROJECT_DIR"
+        return 0
     else
-        print_color "$RED" "源码下载失败！请检查网络连接或您输入的克隆地址是否正确。"
+        print_color "$RED" "❌ 源码下载失败！"
+        
+        # 针对国内用户提供额外帮助信息
+        if [ $IS_CHINA -eq 1 ]; then
+            print_color "$YELLOW" "建议尝试其他代理地址，例如:"
+            print_color "$YELLOW" "https://ghproxy.com/${official_repo_url}"
+            print_color "$YELLOW" "https://github.akams.cn/${official_repo_url}"
+        fi
+        
         exit 1
     fi
 }
