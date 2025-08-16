@@ -178,6 +178,7 @@ function initial_setup() {
     done
 }
 
+# 安装基础依赖
 function install_dependencies() {
     print_color "$BLUE" "\n--- 2. 安装基础依赖 ---"
     apt-get update >/dev/null 2>&1
@@ -214,7 +215,12 @@ function install_dependencies() {
     print_color "$YELLOW" "正在为 htmlrender 插件安装浏览器运行依赖..."
     apt-get install -y libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libatspi2.0-0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2
     print_color "$GREEN" "浏览器依赖安装完成。"
+
+    print_color "$YELLOW" "正在安装中文字体 (文泉驿正黑)..."
+    apt-get install -y fonts-wqy-zenhei
+    print_color "$GREEN" "中文字体安装完成。"
 }
+
 
 function install_docker() {
     print_color "$BLUE" "\n--- 3. 安装 Docker 环境 (用于 Napcat) ---"
@@ -379,9 +385,13 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=${project_abs_path}
-ExecStart=${project_abs_path}/venv/bin/python main.py
+
+ExecStart=${project_abs_path}/venv/bin/python -u main.py
 Restart=on-failure
 RestartSec=5s
+
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
@@ -403,6 +413,7 @@ EOF
         exit 1
     fi
 }
+
 
 
 function deploy_napcat() {
