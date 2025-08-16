@@ -281,13 +281,15 @@ function collect_user_config() {
     read -p "请输入项目部署的目录名 (默认为 lightsnow-project): " dir_input
     PROJECT_DIR=${dir_input:-lightsnow-project}
 
-    read -p "请输入轻雪机器人监听的端口 (默认为 8080): " port_input
-    BOT_PORT=${port_input:-8080}
+    # 端口号已固定为 20216，不再需要用户输入
+    BOT_PORT=20216
+    print_color "$GREEN" "轻雪机器人将使用默认端口: $BOT_PORT"
 
     print_color "$YELLOW" "为了安全，建议为机器人连接设置一个访问令牌 (Access Token)。"
     read -p "请输入您的访问令牌 (留空将不设置): " token_input
     BOT_TOKEN=${token_input}
 }
+
 
 # 克隆轻雪机器人仓库
 function clone_robot_repo() {
@@ -422,6 +424,7 @@ EOF
     fi
 }
 
+
 # 部署 Napcat
 function deploy_napcat() {
     print_color "$BLUE" "\n--- 8. 部署 Napcat 适配器 (Docker) ---"
@@ -484,7 +487,8 @@ function final_instructions() {
     echo -e "4. 在弹出的窗口中，选择连接方式为 ${GREEN}[Websocket客户端]${NC}。"
     echo -e "5. 现在，请依次填写以下信息："
     echo -e "   - ${YELLOW}名称:${NC}         随意填写，例如: ${GREEN}lightsnow_bot${NC}"
-    echo -e "   - ${YELLOW}URL:${NC}          这是关键！请填写: ${GREEN}ws://${SERVER_PUBLIC_IP}:${BOT_PORT}/onebot/v11/ws${NC}"
+    echo -e "   - ${YELLOW}URL:${NC}          ${RED}这是最关键的一步！请务必填写:${NC} ${GREEN}ws://172.17.0.1:${BOT_PORT}/onebot/v11/ws${NC}"
+    echo -e "     ${YELLOW}(注意: 这里使用 172.17.0.1 是为了让 Docker 容器能访问到服务器本身)${NC}"
     echo -e "   - ${YELLOW}信息格式:${NC}     保持默认的 ${GREEN}Array${NC}"
     echo -e "   - ${YELLOW}Token:${NC}        ${GREEN}${BOT_TOKEN:-（您未设置Token）}${NC} (如果您之前设置了令牌，请务必填写)"
     echo -e "6. 填写完毕后，点击 ${GREEN}[保存]${NC} 按钮。"
@@ -507,6 +511,7 @@ function final_instructions() {
     echo -e "  - 查看日志: ${YELLOW}docker compose logs -f napcat${NC}"
     print_color "$BLUE" "========================================================\n"
 }
+
 
 #==============================================================================
 # 主函数
