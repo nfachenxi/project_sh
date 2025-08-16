@@ -217,11 +217,9 @@ function install_dependencies() {
     done
 
     # 单独处理 python3-venv，因为它是一个包而不是一个命令
-    # 使用 dpkg -s 来检查包的安装状态，这是更可靠的方法
     if ! dpkg -s python3-venv &> /dev/null; then
         print_color "$YELLOW" "正在安装 python3-venv..."
         apt-get install -y python3-venv
-        # 安装后再次验证
         if ! dpkg -s python3-venv &> /dev/null; then
             print_color "$RED" "python3-venv 安装失败，请手动安装后再运行此脚本。"
             exit 1
@@ -230,7 +228,13 @@ function install_dependencies() {
     else
         print_color "$GREEN" "python3-venv 已安装。"
     fi
+
+    # 关键修复：为 Playwright (htmlrender 插件) 安装浏览器所需的系统依赖
+    print_color "$YELLOW" "正在为 htmlrender 插件安装浏览器运行依赖..."
+    apt-get install -y libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libatspi2.0-0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2
+    print_color "$GREEN" "浏览器依赖安装完成。"
 }
+
 
 
 # 安装 Docker
