@@ -1,127 +1,186 @@
 #!/bin/bash
 
+# 任何命令执行失败则立即退出
+set -e
+
 #================================================================================
-# 轻雪机器人 + NapCat 一键部署脚本 (v3)
+# 轻雪机器人 + NapCat 一键部署脚本 (v2 - 带自动清理)
 #
 # 脚本说明:
-#   本脚本为 Ubuntu/Debian 用户提供了一个自动化的轻雪机器人 + NapCat 部署方案。
-#   轻雪机器人是一款功能丰富的 QQ 机器人，基于 NoneBot2 框架开发。NapCat 是一个
-#   稳定可靠的 QQ 协议适配器，支持多种连接方式。
+#   本脚本为电脑小白用户设计，旨在提供一个自动化的轻雪机器人 + NapCat 部署方案。
+#   通过 Docker 和 Docker Compose 技术，实现快速部署和简单维护。脚本会自动处理
+#   环境准备、依赖安装、服务配置等复杂步骤，并提供清晰的后续配置指引。
 #
-#   本脚本通过 Docker 部署 NapCat，并在宿主机上部署轻雪机器人，实现了环境隔离与
-#   高效通信。脚本会自动处理环境准备、依赖安装、服务配置等复杂步骤，并提供
-#   详细的后续配置指引。
+# 核心功能:
+#   1. 智能环境准备
+#      - 自动检测并安装 Docker 和 Git
+#      - 根据用户服务器位置智能优化软件源和 Docker 镜像加速
+#   2. 自动化部署
+#      - 交互式收集少量必要配置
+#      - 自动拉取轻雪机器人源码
+#      - 自动生成 Dockerfile 和 Docker Compose 配置文件
+#      - 一键部署轻雪机器人和 Napcat 适配器
+#   3. 详尽的配置指引
+#      - 提供详细的分步图文式说明，指导用户完成 Napcat 的 QQ 登录和与机器人的对接
+#   4. 强大的容错性
+#      - 当脚本执行失败或被用户中途取消 (Ctrl+C) 时，会自动清理所有已创建的
+#        文件和 Docker 容器，确保环境的纯净。
 #
-# 核心特性:
-#   - 全自动化部署：从环境准备到服务启动，全程自动化，无需手动干预
-#   - 智能网络适配：根据服务器地理位置自动选择最佳软件源和镜像
-#   - 多镜像源支持：提供清华、阿里、中科大、豆瓣等多个国内镜像源选择
-#   - 完善的依赖处理：自动安装所有必要的系统和 Python 依赖
-#   - 服务化管理：配置 systemd 服务实现开机自启和状态监控
-#   - 详细配置指引：提供完整的后续配置步骤和常用管理命令
+# 技术栈:
+#   - 轻雪机器人 (Lihgtsnow-Bot): 基于 NoneBot2 的 QQ 机器人
+#   - NapCat: QQ 协议适配器，作为 OneBot v11 反向 WebSocket 客户端
+#   - Docker: 容器化部署和管理
 #
 # 使用说明:
-#   1. 将此脚本保存为 setup_liteyuki_napcat.sh
-#   2. 赋予执行权限: chmod +x setup_liteyuki_napcat.sh
-#   3. 以 root 权限运行: sudo ./setup_liteyuki_napcat.sh
-#   4. 按照屏幕提示完成交互式配置
+#   1. 将此脚本保存为 setup_lightsnow_napcat.sh
+#   2. 赋予执行权限: chmod +x setup_lightsnow_napcat.sh
+#   3. 以 root 权限运行: sudo ./setup_lightsnow_napcat.sh
+#   4. 按照终端提示完成交互式配置
 #
+# 注意事项:
+#   - 运行脚本需要 root 权限
+#   - 请确保服务器防火墙已开放所需端口 (默认为 6099 和 8080)
+#   - 建议在纯净的 Debian 12 或 Ubuntu 系统上运行
 #================================================================================
 
-#==============================================================================
-# 终端颜色定义
-#==============================================================================
+#--- 终端颜色定义 ---
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
+#--- 全局变量 ---
+IS_CHINA=0
+SERVER_PUBLIC_IP=""
+PROJECT_DIR="lightsnow-project"
+BOT_PORT=8080
+BOT_TOKEN=""
+SCRIPT_SUCCESS=0 # 脚本成功完成的标志，0=失败/进行中, 1=成功
+
 #==============================================================================
-# 辅助函数 - 提供基础功能支持
+# 清理函数
 #==============================================================================
 
-# 打印带颜色的消息，增强用户体验
-# 参数:
-#   $1 - 颜色代码
-#   $2 - 要显示的消息
+# 当脚本失败或被中断时执行此函数
+function cleanup_on_failure() {
+    # 仅在脚本未成功完成时执行清理
+    if [ "$SCRIPT_SUCCESS" -eq 0 ]; then
+        print_color "$RED" "\n\n脚本未能成功完成或被中断。"
+        print_color "$YELLOW" "正在自动清理残留环境，请稍候..."
+
+        # 检查项目目录是否存在
+        if [ -d "$PROJECT_DIR" ]; then
+            cd "$PROJECT_DIR"
+            # 检查 docker-compose.yml 是否存在，以及 docker 命令是否可用
+            if [ -f "docker-compose.yml" ] && command_exists docker; then
+                print_color "$YELLOW" "正在停止并移除相关的 Docker 容器..."
+                # 使用 --volumes 确保清理所有相关数据
+                docker compose down --volumes >/dev/null 2>&1
+            fi
+            cd ..
+            print_color "$YELLOW" "正在删除项目目录: $PROJECT_DIR..."
+            rm -rf "$PROJECT_DIR"
+        fi
+        
+        print_color "$GREEN" "环境清理完毕。"
+    fi
+}
+
+# 设置 trap，捕获退出(EXIT)、中断(INT)、终止(TERM)信号
+trap cleanup_on_failure EXIT INT TERM
+
+#==============================================================================
+# 辅助函数
+#==============================================================================
+
+# 打印带颜色的消息
 function print_color() {
     COLOR=$1
     MESSAGE=$2
     echo -e "${COLOR}${MESSAGE}${NC}"
 }
 
-# 检查命令是否存在于系统中
-# 参数:
-#   $1 - 要检查的命令名称
-# 返回:
-#   如果命令存在，返回0；否则返回非0值
+# 检查命令是否存在
 function command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
-# 检查脚本是否以root权限运行
-# 如果不是root用户，显示错误信息并退出
+# 检查是否以 root 权限运行
 function check_root() {
     if [ "$(id -u)" != "0" ]; then
         print_color "$RED" "错误: 此脚本必须以 root 用户身份运行。"
-        print_color "$YELLOW" "请尝试使用 'sudo ./setup_liteyuki_napcat.sh' 运行。"
+        print_color "$YELLOW" "请尝试使用 'sudo ./setup_lightsnow_napcat.sh' 运行。"
         exit 1
     fi
 }
 
-# 获取服务器公网IP地址
-# 尝试多个IP查询服务以提高成功率
-# 返回:
-#   服务器的公网IP地址
+# 暂停脚本，等待用户按回车键继续
+function pause_prompt() {
+    print_color "$YELLOW" "\n$1"
+    read -p "请按 [Enter] 键继续..."
+}
+
+# 获取服务器公网 IP
 function get_public_ip() {
-    print_color "$YELLOW" "正在尝试获取服务器公网IP..."
+    print_color "$BLUE" "正在获取服务器公网 IP 地址..."
     local ip
-    # 依次尝试多个IP查询服务
     ip=$(curl -s https://ifconfig.me)
     [ -z "$ip" ] && ip=$(curl -s https://api.ipify.org)
     [ -z "$ip" ] && ip=$(curl -s https://ipinfo.io/ip)
-    echo "$ip"
-}
-
-# 暂停脚本执行，等待用户确认后继续
-# 参数:
-#   $1 - 显示给用户的提示信息
-function pause_for_user() {
-    print_color "$YELLOW" "\n$1"
-    read -n 1 -s -r -p "请按任意键继续..."
-    echo
+    
+    if [ -z "$ip" ]; then
+        print_color "$RED" "自动获取公网 IP 失败。"
+        while true; do
+            read -p "请输入您的服务器公网 IP: " ip
+            if [[ -n "$ip" ]]; then
+                break
+            else
+                print_color "$RED" "IP 地址不能为空，请重新输入。"
+            fi
+        done
+    fi
+    SERVER_PUBLIC_IP=$ip
+    print_color "$GREEN" "服务器公网 IP 为: $SERVER_PUBLIC_IP"
 }
 
 #==============================================================================
-# 环境准备与安装 - 配置系统环境并安装必要组件
+# 环境准备与安装
 #==============================================================================
 
-# 根据服务器地理位置配置最佳软件源
-# 为国内服务器配置镜像源加速，为海外服务器使用官方源
-# 设置全局变量:
-#   IS_CHINA - 标记服务器是否位于中国大陆
-function handle_location() {
-    print_color "$BLUE" "\n--- 1. 环境与软件源配置 ---"
+# 检测操作系统
+function detect_os() {
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        if [[ "$ID" == "debian" || "$ID" == "ubuntu" ]]; then
+            print_color "$GREEN" "检测到兼容的操作系统: $PRETTY_NAME"
+        else
+            print_color "$RED" "错误: 此脚本仅支持 Debian 和 Ubuntu 系统。"
+            exit 1
+        fi
+    else
+        print_color "$RED" "错误: 无法检测到操作系统类型。"
+        exit 1
+    fi
+}
+
+# 初始设置，询问地理位置
+function initial_setup() {
+    print_color "$BLUE" "\n--- 1. 环境初始化 ---"
     print_color "$YELLOW" "为了优化下载速度，请选择您的服务器所在区域。"
     
+    local choice
     while true; do
         read -p "您的服务器是否位于中国大陆？(y/n): " choice
         case "$choice" in
             y|Y )
-                IS_CHINA=true
-                print_color "$GREEN" "将使用中国大陆镜像源进行加速。"
-                print_color "$YELLOW" "正在更换系统软件源..."
-                # 使用LinuxMirrors项目提供的一键更换脚本
-                bash <(curl -sSL https://linuxmirrors.cn/main.sh)
-                print_color "$YELLOW" "正在配置 Docker 加速..."
-                # 配置Docker镜像加速
-                bash <(curl -sSL https://linuxmirrors.cn/docker.sh)
+                IS_CHINA=1
+                print_color "$GREEN" "已选择中国大陆。后续将使用镜像源进行加速。"
                 break
                 ;;
             n|N )
-                IS_CHINA=false
-                print_color "$GREEN" "将使用官方源进行安装。"
+                IS_CHINA=0
+                print_color "$GREEN" "已选择国外。后续将使用官方源进行安装。"
                 break
                 ;;
             * ) print_color "$RED" "无效输入，请输入 'y' 或 'n'。" ;;
@@ -129,381 +188,263 @@ function handle_location() {
     done
 }
 
-# 安装系统核心依赖包
-# 安装部署过程中必需的基础工具和库
+# 安装基础依赖
 function install_dependencies() {
-    print_color "$BLUE" "\n--- 2. 安装核心依赖 ---"
-    print_color "$YELLOW" "正在更新软件包列表..."
-    # 静默更新软件包列表
+    print_color "$BLUE" "\n--- 2. 安装基础依赖 (Git, Curl) ---"
     apt-get update >/dev/null 2>&1
     
-    print_color "$YELLOW" "正在安装 curl, git, python3-venv..."
-    # 安装基本工具包
-    apt-get install -y curl git python3-venv
-    # 验证关键依赖是否安装成功
-    if ! command_exists curl || ! command_exists git || ! command_exists python3; then
-        print_color "$RED" "核心依赖 (curl, git, python3) 安装失败，请手动安装后重试。"
-        exit 1
-    fi
-    print_color "$GREEN" "核心依赖安装成功。"
-}
-
-# 安装 Playwright 浏览器自动化所需的系统依赖
-# 这些依赖对于轻雪机器人的网页截图等功能至关重要
-function install_playwright_deps() {
-    print_color "$YELLOW" "正在为轻雪机器人安装 Playwright 系统依赖库..."
-    # 安装Playwright所需的所有系统库
-    apt-get install -y libnss3 libnspr4 libdbus-1-3 libatk1.0-0 libatk-bridge2.0-0 \
-                       libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 \
-                       libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 \
-                       libasound2 libatspi2.0-0
-    print_color "$GREEN" "Playwright 系统依赖库安装完成。"
-}
-
-# 安装 Docker 和 Docker Compose
-# 根据服务器环境选择合适的安装方式并配置服务
-function install_docker() {
-    if ! command_exists docker; then
-        print_color "$YELLOW" "未检测到 Docker，正在为您安装..."
-        if [ "$IS_CHINA" = true ]; then
-            # 国内服务器使用镜像加速安装Docker
-            # 注意：Docker加速已在handle_location函数中配置
-            curl -fsSL https://get.docker.com | bash -s docker --mirror Aliyun
-            if [ $? -ne 0 ]; then
-                print_color "$RED" "Docker 安装失败。请检查网络或尝试手动安装。"
+    for pkg in git curl; do
+        if ! command_exists $pkg; then
+            print_color "$YELLOW" "正在安装 $pkg..."
+            apt-get install -y $pkg
+            if ! command_exists $pkg; then
+                print_color "$RED" "$pkg 安装失败，请手动安装后再运行此脚本。"
                 exit 1
             fi
+            print_color "$GREEN" "$pkg 安装成功。"
         else
-            # 海外服务器直接使用官方安装脚本
-            if ! (curl -fsSL https://get.docker.com | bash -s docker); then
+            print_color "$GREEN" "$pkg 已安装。"
+        fi
+    done
+}
+
+# 安装 Docker
+function install_docker() {
+    print_color "$BLUE" "\n--- 3. 安装 Docker 环境 ---"
+    if command_exists docker; then
+        print_color "$GREEN" "Docker 已安装，跳过安装步骤。"
+    else
+        print_color "$YELLOW" "未检测到 Docker，正在为您安装..."
+        if [ $IS_CHINA -eq 1 ]; then
+            print_color "$YELLOW" "使用国内镜像源安装 Docker..."
+            bash <(curl -sSL https://linuxmirrors.cn/main.sh) # 更换系统源
+            bash <(curl -sSL https://linuxmirrors.cn/docker.sh) # 安装并配置 Docker 加速
+        else
+            print_color "$YELLOW" "使用官方脚本安装 Docker..."
+            if ! (curl -fsSL https://get.docker.com | bash); then
                 print_color "$RED" "Docker 安装失败。请检查网络或尝试手动安装。"
                 exit 1
             fi
         fi
         print_color "$GREEN" "Docker 安装成功。"
-    else
-        print_color "$GREEN" "检测到 Docker 已安装。"
     fi
-    
-    # 启动Docker服务并设置开机自启
+
+    # 启动并设置 Docker 开机自启
     systemctl start docker
     systemctl enable docker
     print_color "$GREEN" "Docker 服务已启动并设为开机自启。"
-    
-    # 检查Docker Compose是否可用（Docker v2插件形式）
+
+    # 验证 Docker Compose v2
     if ! docker compose version >/dev/null 2>&1; then
-        print_color "$RED" "Docker Compose (v2 plugin) 未安装或配置不正确。"
+        print_color "$RED" "Docker Compose (v2 插件) 未安装或配置不正确。"
         print_color "$YELLOW" "请检查您的 Docker 安装或手动安装 Docker Compose 插件。"
         exit 1
-    fi
-    print_color "$GREEN" "Docker Compose 已准备就绪。"
-}
-
-#==============================================================================
-# 用户配置收集 - 获取用户自定义配置参数
-#==============================================================================
-
-# 选择Python包管理器(pip)的国内镜像源
-# 设置全局变量:
-#   PIP_INDEX_URL - 选定的pip镜像源URL
-#   PIP_TRUSTED_HOST - 对应的可信主机名
-function select_pip_mirror() {
-    print_color "$BLUE" "\n--- Python 依赖下载加速配置 ---"
-    print_color "$YELLOW" "请选择一个用于下载 Python 依赖的国内镜像源："
-    
-    PS3="请输入选项 (1-4): "
-    select mirror in "清华大学" "阿里云" "中国科学技术大学" "豆瓣"; do
-        case $mirror in
-            "清华大学")
-                # 清华大学镜像源配置
-                PIP_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple"
-                PIP_TRUSTED_HOST="pypi.tuna.tsinghua.edu.cn"
-                break
-                ;;
-            "阿里云")
-                # 阿里云镜像源配置
-                PIP_INDEX_URL="https://mirrors.aliyun.com/pypi/simple/"
-                PIP_TRUSTED_HOST="mirrors.aliyun.com"
-                break
-                ;;
-            "中国科学技术大学")
-                # 中科大镜像源配置
-                PIP_INDEX_URL="https://pypi.mirrors.ustc.edu.cn/simple/"
-                PIP_TRUSTED_HOST="pypi.mirrors.ustc.edu.cn"
-                break
-                ;;
-            "豆瓣")
-                # 豆瓣镜像源配置
-                PIP_INDEX_URL="http://pypi.douban.com/simple/"
-                PIP_TRUSTED_HOST="pypi.douban.com"
-                break
-                ;;
-            *)
-                print_color "$RED" "无效选项，请重新选择。"
-                ;;
-        esac
-    done
-    print_color "$GREEN" "您已选择使用 $mirror 镜像源。"
-}
-
-# 收集用户自定义配置信息
-# 设置全局变量:
-#   PUBLIC_IP - 服务器公网IP地址
-#   project_dir - 项目部署根目录
-#   superuser_qq - 机器人超级管理员QQ号
-#   onebot_token - 通信安全Token
-function collect_user_config() {
-    print_color "$BLUE" "\n--- 3. 收集部署配置信息 ---"
-    
-    # 获取服务器公网IP
-    PUBLIC_IP=$(get_public_ip)
-    if [ -n "$PUBLIC_IP" ]; then
-        print_color "$GREEN" "成功获取到公网IP: $PUBLIC_IP"
     else
-        print_color "$RED" "自动获取公网IP失败！"
-        # 自动获取失败时要求用户手动输入
-        while true; do
-            read -p "请手动输入您的服务器IP地址: " PUBLIC_IP
-            if [[ -n "$PUBLIC_IP" ]]; then
-                break
-            else
-                print_color "$RED" "IP地址不能为空。"
-            fi
-        done
+        print_color "$GREEN" "Docker Compose 已准备就绪。"
     fi
-
-    # 设置项目部署根目录
-    read -p "请输入项目部署的根目录名 (默认为 liteyuki_bot): " project_dir
-    project_dir=${project_dir:-liteyuki_bot}
-    
-    # 设置机器人超级管理员QQ号
-    while true; do
-        read -p "请输入您的机器人超级管理员 QQ 号 (superusers): " superuser_qq
-        # 验证QQ号格式是否正确
-        if [[ "$superuser_qq" =~ ^[1-9][0-9]{4,10}$ ]]; then
-            break
-        else
-            print_color "$RED" "无效的 QQ 号码，请重新输入。"
-        fi
-    done
-    
-    # 设置通信安全Token
-    print_color "$YELLOW" "\n为了安全，建议为轻雪机器人与 NapCat 之间的通信设置一个 Token。"
-    print_color "$YELLOW" "如果您在公网环境部署，强烈建议设置此项。"
-    read -p "请输入通信 Token (留空则不使用): " onebot_token
 }
 
 #==============================================================================
-# 部署与文件生成 - 部署服务并生成配置文件
+# 用户配置与源码下载
 #==============================================================================
 
-# 部署NapCat服务
-# 创建必要的目录结构，生成Docker配置，并启动服务
-function deploy_napcat() {
-    print_color "$BLUE" "\n--- 4. 部署 NapCat ---"
+# 收集用户配置
+function collect_user_config() {
+    print_color "$BLUE" "\n--- 4. 收集机器人配置信息 ---"
     
-    # 创建NapCat数据目录
-    mkdir -p "$project_dir/napcat_data/config"
-    mkdir -p "$project_dir/napcat_data/qq_data"
+    read -p "请输入项目部署的目录名 (默认为 lightsnow-project): " dir_input
+    PROJECT_DIR=${dir_input:-lightsnow-project}
+
+    read -p "请输入轻雪机器人监听的端口 (默认为 8080): " port_input
+    BOT_PORT=${port_input:-8080}
+
+    print_color "$YELLOW" "为了安全，建议为机器人连接设置一个访问令牌 (Access Token)。"
+    read -p "请输入您的访问令牌 (留空将不设置): " token_input
+    BOT_TOKEN=${token_input}
+}
+
+# 克隆轻雪机器人仓库
+function clone_robot_repo() {
+    print_color "$BLUE" "\n--- 5. 下载轻雪机器人源码 ---"
     
-    # 生成docker-compose.yml配置文件
-    cat > "$project_dir/docker-compose.yml" << EOF
+    if [ -d "$PROJECT_DIR" ]; then
+        print_color "$YELLOW" "目录 '$PROJECT_DIR' 已存在，跳过下载。"
+        return
+    fi
+
+    local repo_url="https://github.com/Ikaros-521/Lihgtsnow-Bot.git"
+    local clone_cmd="git clone $repo_url $PROJECT_DIR"
+
+    if [ $IS_CHINA -eq 1 ]; then
+        print_color "$YELLOW" "您位于国内，访问 GitHub 可能较慢。"
+        print_color "$YELLOW" "您可以选择使用代理加速，或直接连接。"
+        print_color "$YELLOW" "代理获取网站示例: https://gh-proxy.com/ 或 https://github.akams.cn/"
+        read -p "请输入完整的代理地址 (如 https://gh-proxy.com/)，或直接按回车键直连: " proxy_url
+        
+        if [ -n "$proxy_url" ]; then
+            # 确保代理地址以 / 结尾
+            [[ "$proxy_url" != */ ]] && proxy_url="$proxy_url/"
+            clone_cmd="git clone ${proxy_url}${repo_url} $PROJECT_DIR"
+            print_color "$GREEN" "将通过代理: $proxy_url 进行下载。"
+        else
+            print_color "$GREEN" "将尝试直接连接 GitHub 下载。"
+        fi
+    fi
+
+    print_color "$YELLOW" "正在执行: $clone_cmd"
+    $clone_cmd
+    print_color "$GREEN" "轻雪机器人源码下载成功，位于目录: $PROJECT_DIR"
+}
+
+#==============================================================================
+# 配置文件生成与部署
+#==============================================================================
+
+# 配置轻雪机器人
+function configure_robot() {
+    print_color "$BLUE" "\n--- 6. 自动配置机器人环境 ---"
+    cd "$PROJECT_DIR"
+
+    # 创建 .env.prod 文件
+    print_color "$YELLOW" "正在生成机器人配置文件 .env.prod..."
+    cat > .env.prod << EOF
+# .env.prod
+ENVIRONMENT=prod
+HOST=0.0.0.0
+PORT=$BOT_PORT
+LOG_LEVEL=INFO
+SUPERUSERS=["123456789"] # 请在机器人运行后通过指令添加
+NICKNAME=["轻雪"]
+COMMAND_START=["/"]
+ACCESS_TOKEN=$BOT_TOKEN
+EOF
+    print_color "$GREEN" ".env.prod 文件创建成功。"
+
+    # 创建 Dockerfile
+    print_color "$YELLOW" "正在为轻雪机器人生成 Dockerfile..."
+    cat > Dockerfile << EOF
+# 使用 Python 3.10-slim 作为基础镜像
+FROM python:3.10-slim
+
+# 设置工作目录
+WORKDIR /app
+
+# 复制依赖文件
+COPY requirements.txt .
+
+# 安装依赖，如果在中国则使用清华镜像源
+RUN if [ "$IS_CHINA" = "1" ]; then \
+        pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple; \
+    else \
+        pip install --no-cache-dir -r requirements.txt; \
+    fi
+
+# 复制项目所有文件
+COPY . .
+
+# 暴露端口
+EXPOSE $BOT_PORT
+
+# 启动命令
+CMD ["nb", "run", "--host", "0.0.0.0", "--port", "$BOT_PORT"]
+EOF
+    # 将 IS_CHINA 变量传递给 Docker build 过程
+    sed -i "s/IS_CHINA=1/IS_CHINA=${IS_CHINA}/" Dockerfile
+    print_color "$GREEN" "Dockerfile 创建成功。"
+    
+    cd ..
+}
+
+# 创建 docker-compose.yml 文件并部署
+function create_and_deploy() {
+    print_color "$BLUE" "\n--- 7. 创建 Docker Compose 配置并部署 ---"
+    cd "$PROJECT_DIR"
+
+    # 获取 UID 和 GID
+    local uid=$(id -u)
+    local gid=$(id -g)
+
+    print_color "$YELLOW" "正在生成 docker-compose.yml..."
+    cat > docker-compose.yml << EOF
 services:
   napcat:
-    image: docker.xuanyuan.me/mlikiowa/napcat-docker:latest
+    image: mlikiowa/napcat-docker:latest
     container_name: napcat
     restart: always
     network_mode: bridge
     mac_address: 02:42:ac:11:00:02
+    environment:
+      - NAPCAT_UID=${uid}
+      - NAPCAT_GID=${gid}
     ports:
       - "6099:6099"
+      - "3001:3001"
     volumes:
       - ./napcat_data/config:/app/napcat/config
-      - ./napcat_data/qq_data:/app/.config/QQ
-    environment:
-      - NAPCAT_UID=$(id -u)
-      - NAPCAT_GID=$(id -g)
+      - ./napcat_data/qq:/app/.config/QQ
+
+  lightsnow:
+    build: .
+    container_name: lightsnow-bot
+    restart: always
+    network_mode: bridge
+    ports:
+      - "${BOT_PORT}:${BOT_PORT}"
+    volumes:
+      - ./:/app
 EOF
     print_color "$GREEN" "docker-compose.yml 文件创建成功。"
-    
-    # 启动NapCat Docker服务
-    print_color "$YELLOW" "正在启动 NapCat 服务，首次启动需要拉取镜像，请稍候..."
-    (cd "$project_dir" && docker compose up -d)
-    if [ $? -eq 0 ]; then
-        print_color "$GREEN" "NapCat 服务已成功启动！"
-    else
-        print_color "$RED" "NapCat 服务启动失败！请检查以上日志输出。"
-        exit 1
-    fi
-}
 
-# 部署轻雪机器人
-# 克隆代码、安装依赖、配置服务并启动
-function deploy_liteyukibot() {
-    print_color "$BLUE" "\n--- 5. 部署轻雪机器人 ---"
-    
-    # 设置仓库地址
-    local official_repo="https://github.com/LiteyukiStudio/LiteyukiBot"
-    local liteyuki_repo="$official_repo"
-    
-    # 根据地理位置选择合适的仓库源
-    print_color "$YELLOW" "轻雪机器人的官方仓库地址是: $official_repo"
-    if [ "$IS_CHINA" = true ]; then
-        print_color "$YELLOW" "您位于国内，推荐使用镜像或代理加速 Git 克隆。"
-        print_color "$YELLOW" "Liteyuki 官方镜像源: https://git.liteyuki.org/bot/app"
-        print_color "$YELLOW" "您也可以使用 GitHub 代理网站 (如 https://gh-proxy.com/ 或 https://github.akams.cn/) 生成代理地址。"
-        read -p "请输入完整的克隆地址 (留空则使用官方镜像源): " custom_repo_url
-        liteyuki_repo=${custom_repo_url:-"https://git.liteyuki.org/bot/app"}
-    fi
-    
-    # 克隆轻雪机器人代码仓库
-    print_color "$YELLOW" "正在从 $liteyuki_repo 克隆项目..."
-    if ! git clone "$liteyuki_repo" "$project_dir/LiteyukiBot" --depth=1; then
-        print_color "$RED" "Git 克隆失败！请检查您的网络或克隆地址是否正确。"
-        exit 1
-    fi
-    
-    local bot_dir="$project_dir/LiteyukiBot"
-    
-    # 创建Python虚拟环境
-    print_color "$YELLOW" "正在创建 Python 虚拟环境..."
-    python3 -m venv "$bot_dir/venv"
-    
-    # 国内环境选择镜像源
-    if [ "$IS_CHINA" = true ]; then
-        select_pip_mirror
-    fi
-    
-    # 安装Python依赖
-    print_color "$YELLOW" "正在安装 Python 依赖，将显示详细日志，请耐心等待..."
-    local pip_cmd="$bot_dir/venv/bin/pip"
-    local playwright_cmd="$bot_dir/venv/bin/playwright"
-    
-    if [ "$IS_CHINA" = true ]; then
-        # 使用国内镜像源安装依赖
-        $pip_cmd install -v -i "$PIP_INDEX_URL" --trusted-host "$PIP_TRUSTED_HOST" -r "$bot_dir/requirements.txt"
-        $pip_cmd install -v -i "$PIP_INDEX_URL" --trusted-host "$PIP_TRUSTED_HOST" nonebot-adapter-onebot
-    else
-        # 使用官方源安装依赖
-        $pip_cmd install -v -r "$bot_dir/requirements.txt"
-        $pip_cmd install -v nonebot-adapter-onebot
-    fi
-    print_color "$GREEN" "Python 依赖安装完成。"
-    
-    # 安装Playwright浏览器内核
-    print_color "$YELLOW" "正在安装 Playwright 浏览器内核，这可能需要一些时间..."
-    $playwright_cmd install
-    print_color "$GREEN" "Playwright 浏览器内核安装完成。"
-    
-    # 生成轻雪机器人配置文件
-    print_color "$YELLOW" "正在生成轻雪机器人配置文件..."
-    cat > "$bot_dir/config.yml" << EOF
-# NoneBot 核心配置
-nonebot:
-  host: 0.0.0.0
-  port: 20216
-  superusers: ["$superuser_qq"]
-  nickname: ["轻雪"]
-  drivers: ["~onebot.v11"]
-  onebot_access_token: "$onebot_token"
-
-# LiteyukiBot 特定配置
-liteyuki:
-  log_level: "INFO"
-  auto_update: true
-EOF
-    print_color "$GREEN" "config.yml 文件创建成功。"
-    
-    # 创建systemd服务实现开机自启和后台运行
-    print_color "$YELLOW" "正在创建 systemd 服务，以便后台运行轻雪机器人..."
-    local service_file="/etc/systemd/system/liteyukibot.service"
-    local work_dir=$(realpath "$bot_dir")
-    
-    cat > "$service_file" << EOF
-[Unit]
-Description=LiteyukiBot Service
-After=network.target
-
-[Service]
-Type=simple
-User=$(who am i | awk '{print $1}')
-WorkingDirectory=$work_dir
-ExecStart=$work_dir/venv/bin/python main.py
-Restart=on-failure
-RestartSec=5s
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    
-    # 启动并设置开机自启
-    systemctl daemon-reload
-    systemctl enable liteyukibot.service
-    systemctl start liteyukibot.service
-    
-    print_color "$GREEN" "轻雪机器人已作为后台服务启动。"
-    print_color "$YELLOW" "您可以使用 'sudo systemctl status liteyukibot' 查看状态。"
-    print_color "$YELLOW" "使用 'sudo journalctl -fu liteyukibot' 查看实时日志。"
+    # 启动服务
+    print_color "$YELLOW" "正在启动所有服务，首次启动需要拉取和构建镜像，可能需要几分钟..."
+    docker compose up -d
+    print_color "$GREEN" "服务已成功在后台启动！"
+    cd ..
 }
 
 #==============================================================================
-# 最终指引 - 提供部署后的配置步骤和管理指南
+# 最终指引
 #==============================================================================
 
-# 显示部署完成后的配置指南和管理命令
-# 引导用户完成NapCat登录、连接配置和机器人测试
-function show_summary() {
-    print_color "$BLUE" "\n==================== 自动化部署完成 ===================="
+function final_instructions() {
+    print_color "$BLUE" "\n======================== 部署完成 ========================"
     print_color "$GREEN" "恭喜！轻雪机器人和 NapCat 已成功部署并正在后台运行。"
-    print_color "$YELLOW" "\n接下来，请按照以下步骤完成手动配置："
+    print_color "$YELLOW" "\n接下来，请务必按照以下步骤完成手动配置："
     
-    # 步骤1: 登录NapCat并让机器人QQ上线
     echo -e "\n--------------------------------------------------"
-    print_color "$BLUE" "步骤 1: 登录 NapCat 并让机器人 QQ 上线"
+    print_color "$BLUE" "步骤 1: 登录 NapCat 并扫描二维码"
     echo -e "--------------------------------------------------"
-    echo -e "1. 在浏览器中访问 NapCat WebUI: ${GREEN}http://${PUBLIC_IP}:6099/webui${NC}"
-    echo -e "2. 首次访问默认的Token密码为 ${GREEN}napcat${NC}"
-    echo -e "3. 进入登陆界面后, 点击扫码登陆，使用您的手机 QQ 扫描屏幕上的二维码。"
-    echo -e "4. 等待机器人 QQ 账号成功上线。"
+    echo -e "1. 在浏览器中打开 NapCat WebUI 地址: ${GREEN}http://${SERVER_PUBLIC_IP}:6099/webui${NC}"
+    echo -e "2. 首次登录，请输入默认令牌: ${GREEN}napcat${NC}，然后点击登录。"
+    echo -e "3. 屏幕上会出现一个二维码，请使用您准备作为机器人的 QQ 手机版扫描该二维码进行登录。"
+    
+    pause_prompt "请在完成 QQ 扫码登录后，按回车键继续下一步指引..."
 
-    # 步骤2: 配置NapCat与轻雪机器人的连接
     echo -e "\n--------------------------------------------------"
     print_color "$BLUE" "步骤 2: 在 NapCat 中配置与轻雪机器人的连接"
     echo -e "--------------------------------------------------"
-    pause_for_user "请在完成上一步 [登录 NapCat] 后按任意键继续..."
-    
-    echo -e "1. 在 NapCat WebUI 左侧菜单中，点击 ${GREEN}[网络配置]${NC}。"
-    echo -e "2. 点击 ${GREEN}[新建]${NC} 按钮, 选择 ${GREEN}Websocket客户端${NC} 选项。"
-    echo -e "3. 在弹出的窗口中，填写以下信息："
-    echo -e "   - **名称**: ${GREEN}自行填写 (例如: liteyuki-bot)${NC}"
-    echo -e "   - **WebSocket 地址**: ${GREEN}ws://${PUBLIC_IP}:20216/onebot/v11/ws${NC}"
-    echo -e "   - **AccessToken**: ${YELLOW}填写您之前设置的 Token: ${GREEN}${onebot_token:-（您未设置）}${NC}"
-    echo -e "4. 点击 ${GREEN}[保存]${NC}。"
-    echo -e "5. 如果一切正常，点击左侧的 ${GREEN}[猫猫日志]${NC} 你会看到已连接。"
+    echo -e "1. 登录成功后，您会看到 NapCat 的主界面。"
+    echo -e "2. 在左侧菜单栏中，点击 ${GREEN}[网络配置]${NC}。"
+    echo -e "3. 在右侧界面中，点击 ${GREEN}[新建]${NC} 按钮。"
+    echo -e "4. 在弹出的窗口中，选择连接方式为 ${GREEN}[Websocket客户端]${NC}。"
+    echo -e "5. 现在，请依次填写以下信息："
+    echo -e "   - ${YELLOW}名称:${NC}         随意填写，例如: ${GREEN}lightsnow_bot${NC}"
+    echo -e "   - ${YELLOW}URL:${NC}          这是关键！请填写: ${GREEN}ws://${SERVER_PUBLIC_IP}:${BOT_PORT}/onebot/v11/ws${NC}"
+    echo -e "   - ${YELLOW}信息格式:${NC}     保持默认的 ${GREEN}Array${NC}"
+    echo -e "   - ${YELLOW}Token:${NC}        ${GREEN}${BOT_TOKEN:-（您未设置Token）}${NC} (如果您之前设置了令牌，请务必填写)"
+    echo -e "6. 填写完毕后，点击 ${GREEN}[保存]${NC} 按钮。"
+    echo -e "7. 保存后，您应该能看到列表里新增了一项连接，并且状态显示为 ${GREEN}已连接${NC}。"
+    echo -e "\n${GREEN}至此，您的机器人已经完全上线并可以正常工作了！${NC}"
 
-    # 步骤3: 测试机器人功能
-    echo -e "\n--------------------------------------------------"
-    print_color "$BLUE" "步骤 3: 测试机器人"
-    echo -e "--------------------------------------------------"
-    echo -e "1. 使用您的任意 QQ 号，向机器人 QQ 发送一条消息，例如：${GREEN}菜单${NC}。"
-    echo -e "2. 如果机器人有回复，则表示整个链路已成功打通！"
-    echo -e "3. 您可以查看轻雪机器人的实时日志来排查问题:"
-    echo -e "   ${YELLOW}sudo journalctl -fu liteyukibot${NC}"
-
-    # 提供服务管理和维护指南
-    print_color "$BLUE" "\n==================== 管理与维护 ===================="
-    echo -e "您的所有项目文件都位于: ${YELLOW}~/${project_dir}${NC}"
+    print_color "$BLUE" "\n====================== 管理与维护 ======================"
+    echo -e "您的所有项目文件都位于当前目录下的: ${YELLOW}${PROJECT_DIR}${NC}"
+    echo -e "如需管理服务，请先进入该目录: ${YELLOW}cd ${PROJECT_DIR}${NC}"
     echo -e "常用命令:"
-    echo -e "  - 管理 NapCat (需在 ~/${project_dir} 目录下执行):"
-    echo -e "    - 停止: ${YELLOW}docker compose down${NC}"
-    echo -e "    - 启动: ${YELLOW}docker compose up -d${NC}"
-    echo -e "    - 查看日志: ${YELLOW}docker compose logs -f napcat${NC}"
-    echo -e "  - 管理轻雪机器人:"
-    echo -e "    - 停止: ${YELLOW}sudo systemctl stop liteyukibot${NC}"
-    echo -e "    - 启动: ${YELLOW}sudo systemctl start liteyukibot${NC}"
-    echo -e "    - 重启: ${YELLOW}sudo systemctl restart liteyukibot${NC}"
-    echo -e "    - 查看状态: ${YELLOW}sudo systemctl status liteyukibot${NC}"
-    print_color "$BLUE" "==================================================\n"
+    echo -e "  - 停止所有服务: ${YELLOW}docker compose down${NC}"
+    echo -e "  - 启动所有服务: ${YELLOW}docker compose up -d${NC}"
+    echo -e "  - 查看实时日志: ${YELLOW}docker compose logs -f${NC}"
+    echo -e "  - 查看指定服务日志: ${YELLOW}docker compose logs -f lightsnow-bot${NC} 或 ${YELLOW}docker compose logs -f napcat${NC}"
+    print_color "$BLUE" "========================================================\n"
 }
 
 #==============================================================================
@@ -512,18 +453,23 @@ function show_summary() {
 function main() {
     clear
     print_color "$BLUE" "========================================================"
-    print_color "$BLUE" "      轻雪机器人 + NapCat 一键部署脚本 (v3)"
+    print_color "$BLUE" "      轻雪机器人 + NapCat QQ机器人 一键部署脚本"
     print_color "$BLUE" "========================================================"
     
     check_root
-    handle_location
+    detect_os
+    initial_setup
     install_dependencies
-    install_playwright_deps
     install_docker
+    get_public_ip
     collect_user_config
-    deploy_napcat
-    deploy_liteyukibot
-    show_summary
+    clone_robot_repo
+    configure_robot
+    create_and_deploy
+    final_instructions
+
+    # 所有步骤成功完成后，将成功标志设为1，以防止 cleanup_on_failure 函数执行清理
+    SCRIPT_SUCCESS=1
 }
 
 # --- 脚本入口 ---
