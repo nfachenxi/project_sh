@@ -4,43 +4,41 @@
 set -e
 
 #================================================================================
-# 轻雪机器人 + NapCat 一键部署脚本 (v3 - 优化国内下载体验)
+# 轻雪机器人 + NapCat 一键部署脚本 (v8 - Systemd 部署方案)
 #
 # 脚本说明:
 #   本脚本为电脑小白用户设计，旨在提供一个自动化的轻雪机器人 + NapCat 部署方案。
-#   通过 Docker 和 Docker Compose 技术，实现快速部署和简单维护。脚本会自动处理
-#   环境准备、依赖安装、服务配置等复杂步骤，并提供清晰的后续配置指引。
+#   此版本采用混合部署模式：Napcat 在 Docker 中运行，轻雪机器人作为 systemd
+#   服务直接在宿主机上运行，以获得最佳的稳定性和易于调试的特性。
 #
 # 核心功能:
 #   1. 智能环境准备
-#      - 自动检测并安装 Docker 和 Git
-#      - 根据用户服务器位置智能优化软件源和 Docker 镜像加速
+#      - 自动检测并安装 Docker, Git, Python3-venv 等必要依赖。
+#      - 根据用户服务器位置智能优化软件源和 Docker 镜像加速。
 #   2. 自动化部署
-#      - 交互式收集少量必要配置
-#      - 自动拉取轻雪机器人源码，并为国内用户提供清晰的加速指引和默认选项
-#      - 自动生成 Dockerfile 和 Docker Compose 配置文件
-#      - 一键部署轻雪机器人和 Napcat 适配器
-#   3. 详尽的配置指引
-#      - 提供详细的分步图文式说明，指导用户完成 Napcat 的 QQ 登录和与机器人的对接
+#      - 交互式收集少量必要配置。
+#      - 自动拉取轻雪机器人源码，并为国内用户提供清晰的加速指引。
+#      - 自动创建 Python 虚拟环境并安装依赖。
+#      - 自动创建并配置 systemd 服务，实现机器人开机自启和稳定运行。
+#      - 自动通过 Docker Compose 部署 Napcat。
+#   3. 详尽的配置与管理指引
+#      - 提供清晰的 Napcat 配置步骤。
+#      - 提供简单明了的 systemd 服务管理和日志查看命令。
 #   4. 强大的容错性
 #      - 当脚本执行失败或被用户中途取消 (Ctrl+C) 时，会自动清理所有已创建的
-#        文件和 Docker 容器，确保环境的纯净。
+#        文件、Docker 容器和 systemd 服务，确保环境的纯净。
 #
 # 技术栈:
-#   - 轻雪机器人 (Lihgtsnow-Bot): 基于 NoneBot2 的 QQ 机器人
-#   - NapCat: QQ 协议适配器，作为 OneBot v11 反向 WebSocket 客户端
-#   - Docker: 容器化部署和管理
+#   - 轻雪机器人 (Lihgtsnow-Bot): 作为 systemd 服务运行
+#   - NapCat: 在 Docker 容器中运行
+#   - Python Virtual Environment (venv): 隔离机器人运行环境
+#   - Systemd: 进程守护与日志管理
 #
 # 使用说明:
 #   1. 将此脚本保存为 setup_lightsnow_napcat.sh
 #   2. 赋予执行权限: chmod +x setup_lightsnow_napcat.sh
 #   3. 以 root 权限运行: sudo ./setup_lightsnow_napcat.sh
 #   4. 按照终端提示完成交互式配置
-#
-# 注意事项:
-#   - 运行脚本需要 root 权限
-#   - 请确保服务器防火墙已开放所需端口 (默认为 6099 和 8080)
-#   - 建议在纯净的 Debian 12 或 Ubuntu 系统上运行
 #================================================================================
 
 #--- 终端颜色定义 ---
@@ -69,16 +67,26 @@ function cleanup_on_failure() {
         print_color "$RED" "\n\n脚本未能成功完成或被中断。"
         print_color "$YELLOW" "正在自动清理残留环境，请稍候..."
 
-        # 检查项目目录是否存在
-        if [ -d "$PROJECT_DIR" ]; then
+        # 1. 清理 systemd 服务
+        local SERVICE_FILE="/etc/systemd/system/lightsnow-bot.service"
+        if [ -f "$SERVICE_FILE" ]; then
+            print_color "$YELLOW" "正在停止并移除 systemd 服务..."
+            systemctl stop lightsnow-bot || true
+            systemctl disable lightsnow-bot || true
+            rm -f "$SERVICE_FILE"
+            systemctl daemon-reload
+        fi
+
+        # 2. 清理 Docker (Napcat)
+        if [ -d "$PROJECT_DIR" ] && [ -f "$PROJECT_DIR/docker-compose.yml" ] && command_exists docker; then
+            print_color "$YELLOW" "正在停止并移除 Napcat Docker 容器..."
             cd "$PROJECT_DIR"
-            # 检查 docker-compose.yml 是否存在，以及 docker 命令是否可用
-            if [ -f "docker-compose.yml" ] && command_exists docker; then
-                print_color "$YELLOW" "正在停止并移除相关的 Docker 容器..."
-                # 使用 --volumes 确保清理所有相关数据
-                docker compose down --volumes >/dev/null 2>&1
-            fi
+            docker compose down --volumes >/dev/null 2>&1
             cd ..
+        fi
+
+        # 3. 清理项目文件
+        if [ -d "$PROJECT_DIR" ]; then
             print_color "$YELLOW" "正在删除项目目录: $PROJECT_DIR..."
             rm -rf "$PROJECT_DIR"
         fi
@@ -190,10 +198,11 @@ function initial_setup() {
 
 # 安装基础依赖
 function install_dependencies() {
-    print_color "$BLUE" "\n--- 2. 安装基础依赖 (Git, Curl) ---"
+    print_color "$BLUE" "\n--- 2. 安装基础依赖 ---"
     apt-get update >/dev/null 2>&1
     
-    for pkg in git curl; do
+    # 增加 python3-venv 用于创建虚拟环境
+    for pkg in git curl python3-venv; do
         if ! command_exists $pkg; then
             print_color "$YELLOW" "正在安装 $pkg..."
             apt-get install -y $pkg
@@ -210,7 +219,7 @@ function install_dependencies() {
 
 # 安装 Docker
 function install_docker() {
-    print_color "$BLUE" "\n--- 3. 安装 Docker 环境 ---"
+    print_color "$BLUE" "\n--- 3. 安装 Docker 环境 (用于 Napcat) ---"
     if command_exists docker; then
         print_color "$GREEN" "Docker 已安装，跳过安装步骤。"
     else
@@ -229,15 +238,12 @@ function install_docker() {
         print_color "$GREEN" "Docker 安装成功。"
     fi
 
-    # 启动并设置 Docker 开机自启
     systemctl start docker
     systemctl enable docker
     print_color "$GREEN" "Docker 服务已启动并设为开机自启。"
 
-    # 验证 Docker Compose v2
     if ! docker compose version >/dev/null 2>&1; then
         print_color "$RED" "Docker Compose (v2 插件) 未安装或配置不正确。"
-        print_color "$YELLOW" "请检查您的 Docker 安装或手动安装 Docker Compose 插件。"
         exit 1
     else
         print_color "$GREEN" "Docker Compose 已准备就绪。"
@@ -267,40 +273,31 @@ function collect_user_config() {
 function clone_robot_repo() {
     print_color "$BLUE" "\n--- 5. 下载轻雪机器人源码 ---"
     
-    # 检查目标目录是否存在，提供更灵活的选项
     if [ -d "$PROJECT_DIR" ]; then
         print_color "$YELLOW" "目录 '$PROJECT_DIR' 已存在。"
         read -p "是否删除现有目录并重新下载? [y/N] " -n 1 -r
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then
             print_color "$YELLOW" "正在删除现有目录..."
-            if ! rm -rf "$PROJECT_DIR"; then
-                print_color "$RED" "删除现有目录失败，请检查权限"
-                exit 1
-            fi
+            rm -rf "$PROJECT_DIR"
         else
-            print_color "$YELLOW" "已跳过下载步骤"
-            return 0
+            print_color "$YELLOW" "已跳过下载步骤。"
+            return
         fi
     fi
 
     local official_repo_url="https://github.com/Ikaros-521/Lihgtsnow-Bot.git"
-    local clone_url="$official_repo_url"  # 默认使用官方地址
-    # 使用第一个代码中的官方镜像源作为默认代理
+    local clone_url="$official_repo_url"
     local default_proxy_url="https://git.liteyuki.org/bot/app"
 
-    # 显示仓库信息
     print_color "$YELLOW" "轻雪机器人的官方仓库地址是: ${GREEN}$official_repo_url${NC}"
 
-    # 国内用户特殊处理
     if [ $IS_CHINA -eq 1 ]; then
         print_color "$YELLOW" "检测到您位于国内，推荐使用代理加速下载。"
         print_color "$YELLOW" "可用的代理服务: https://gh-proxy.com/ 或 https://github.akams.cn/"
         print_color "$YELLOW" "官方镜像源: ${GREEN}$default_proxy_url${NC}"
-        
         read -p "请输入克隆地址 (留空使用官方镜像源，输入'0'使用官方地址): " custom_clone_url
         
-        # 处理用户输入
         if [ -z "$custom_clone_url" ]; then
             clone_url="$default_proxy_url"
         elif [ "$custom_clone_url" = "0" ]; then
@@ -310,37 +307,51 @@ function clone_robot_repo() {
         fi
     fi
 
-    # 显示克隆信息并执行克隆，增加深度参数加快速度
     print_color "$YELLOW" "正在从 ${GREEN}$clone_url${NC} 克隆代码..."
     if git clone --depth=1 "$clone_url" "$PROJECT_DIR"; then
         print_color "$GREEN" "✅ 轻雪机器人源码下载成功，位于目录: $PROJECT_DIR"
-        return 0
     else
         print_color "$RED" "❌ 源码下载失败！"
-        
-        # 针对国内用户提供额外帮助信息
-        if [ $IS_CHINA -eq 1 ]; then
-            print_color "$YELLOW" "建议尝试其他代理地址，例如:"
-            print_color "$YELLOW" "https://ghproxy.com/${official_repo_url}"
-            print_color "$YELLOW" "https://github.akams.cn/${official_repo_url}"
-        fi
-        
         exit 1
     fi
 }
 
 #==============================================================================
-# 配置文件生成与部署
+# 机器人环境配置与部署
 #==============================================================================
 
-# 配置轻雪机器人
-function configure_robot() {
-    print_color "$BLUE" "\n--- 6. 自动配置机器人环境 ---"
+# 配置 Python 环境并安装依赖
+function setup_python_environment() {
+    print_color "$BLUE" "\n--- 6. 配置 Python 环境并安装依赖 ---"
     cd "$PROJECT_DIR"
 
+    print_color "$YELLOW" "正在创建 Python 虚拟环境..."
+    python3 -m venv venv
+    
+    print_color "$YELLOW" "正在激活虚拟环境并安装依赖，请稍候..."
+    local pip_cmd="./venv/bin/pip install --no-cache-dir -r requirements.txt"
+    if [ $IS_CHINA -eq 1 ]; then
+        pip_cmd+=" -i https://pypi.tuna.tsinghua.edu.cn/simple"
+    fi
+    
+    # 执行安装
+    $pip_cmd
+    
+    print_color "$GREEN" "✅ Python 依赖安装完成。"
+    cd ..
+}
+
+# 创建并启动 systemd 服务
+function create_and_start_systemd_service() {
+    print_color "$BLUE" "\n--- 7. 创建并启动机器人后台服务 (Systemd) ---"
+    
+    # 获取项目绝对路径
+    local project_abs_path
+    project_abs_path=$(realpath "$PROJECT_DIR")
+    
     # 创建 .env.prod 文件
     print_color "$YELLOW" "正在生成机器人配置文件 .env.prod..."
-    cat > .env.prod << EOF
+    cat > "${project_abs_path}/.env.prod" << EOF
 # .env.prod
 ENVIRONMENT=prod
 HOST=0.0.0.0
@@ -353,53 +364,53 @@ ACCESS_TOKEN=$BOT_TOKEN
 EOF
     print_color "$GREEN" ".env.prod 文件创建成功。"
 
-    # 创建 Dockerfile
-    print_color "$YELLOW" "正在为轻雪机器人生成 Dockerfile..."
-    cat > Dockerfile << EOF
-# 使用 Python 3.10-slim 作为基础镜像
-FROM python:3.10-slim
+    # 创建 systemd 服务文件
+    print_color "$YELLOW" "正在创建 systemd 服务文件..."
+    local service_file="/etc/systemd/system/lightsnow-bot.service"
+    cat > "$service_file" << EOF
+[Unit]
+Description=Lightsnow QQ Bot Service
+After=network.target
 
-# 设置工作目录
-WORKDIR /app
+[Service]
+Type=simple
+User=root
+WorkingDirectory=${project_abs_path}
+ExecStart=${project_abs_path}/venv/bin/python main.py
+Restart=on-failure
+RestartSec=5s
 
-# 复制依赖文件
-COPY requirements.txt .
-
-# 安装依赖，如果在中国则使用清华镜像源
-RUN if [ "$IS_CHINA" = "1" ]; then \
-        pip install --no-cache-dir nb-cli -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple; \
-    else \
-        pip install --no-cache-dir nb-cli -r requirements.txt; \
-    fi
-
-# 复制项目所有文件
-COPY . .
-
-# 暴露端口
-EXPOSE $BOT_PORT
-
-# 启动命令
-# 关键修复：改用更直接的 python bot.py 启动，避免 nb run 的路径问题
-CMD ["python", "bot.py"]
+[Install]
+WantedBy=multi-user.target
 EOF
-    # 将 IS_CHINA 变量传递给 Docker build 过程
-    sed -i "s/IS_CHINA=1/IS_CHINA=${IS_CHINA}/" Dockerfile
-    print_color "$GREEN" "Dockerfile 创建成功。"
-    
-    cd ..
+    print_color "$GREEN" "Systemd 服务文件创建成功: $service_file"
+
+    # 重载、启用并启动服务
+    print_color "$YELLOW" "正在重载 systemd 并启动服务..."
+    systemctl daemon-reload
+    systemctl enable lightsnow-bot
+    systemctl start lightsnow-bot
+
+    # 检查服务状态
+    sleep 3 # 等待几秒钟让服务有时间启动或失败
+    if systemctl is-active --quiet lightsnow-bot; then
+        print_color "$GREEN" "✅ 轻雪机器人服务已成功启动！"
+    else
+        print_color "$RED" "❌ 轻雪机器人服务启动失败！"
+        print_color "$YELLOW" "请使用 'journalctl -u lightsnow-bot -n 50' 命令查看详细错误日志。"
+        exit 1
+    fi
 }
 
-
-# 创建 docker-compose.yml 文件并部署
-function create_and_deploy() {
-    print_color "$BLUE" "\n--- 7. 创建 Docker Compose 配置并部署 ---"
+# 部署 Napcat
+function deploy_napcat() {
+    print_color "$BLUE" "\n--- 8. 部署 Napcat 适配器 (Docker) ---"
     cd "$PROJECT_DIR"
 
-    # 获取 UID 和 GID
     local uid=$(id -u)
     local gid=$(id -g)
 
-    print_color "$YELLOW" "正在生成 docker-compose.yml..."
+    print_color "$YELLOW" "正在生成 docker-compose.yml (仅包含 Napcat)..."
     cat > docker-compose.yml << EOF
 services:
   napcat:
@@ -417,23 +428,12 @@ services:
     volumes:
       - ./napcat_data/config:/app/napcat/config
       - ./napcat_data/qq:/app/.config/QQ
-
-  lightsnow:
-    build: .
-    container_name: lightsnow-bot
-    restart: always
-    network_mode: bridge
-    ports:
-      - "${BOT_PORT}:${BOT_PORT}"
-    volumes:
-      - ./:/app
 EOF
     print_color "$GREEN" "docker-compose.yml 文件创建成功。"
 
-    # 启动服务
-    print_color "$YELLOW" "正在启动所有服务，首次启动需要拉取和构建镜像，可能需要几分钟..."
+    print_color "$YELLOW" "正在后台启动 Napcat 服务..."
     docker compose up -d
-    print_color "$GREEN" "服务已成功在后台启动！"
+    print_color "$GREEN" "✅ Napcat 服务已成功在后台启动！"
     cd ..
 }
 
@@ -473,12 +473,18 @@ function final_instructions() {
 
     print_color "$BLUE" "\n====================== 管理与维护 ======================"
     echo -e "您的所有项目文件都位于当前目录下的: ${YELLOW}${PROJECT_DIR}${NC}"
-    echo -e "如需管理服务，请先进入该目录: ${YELLOW}cd ${PROJECT_DIR}${NC}"
-    echo -e "常用命令:"
-    echo -e "  - 停止所有服务: ${YELLOW}docker compose down${NC}"
-    echo -e "  - 启动所有服务: ${YELLOW}docker compose up -d${NC}"
-    echo -e "  - 查看实时日志: ${YELLOW}docker compose logs -f${NC}"
-    echo -e "  - 查看指定服务日志: ${YELLOW}docker compose logs -f lightsnow-bot${NC} 或 ${YELLOW}docker compose logs -f napcat${NC}"
+    echo -e "\n--- 轻雪机器人管理 (Systemd) ---"
+    echo -e "  - 查看状态: ${YELLOW}systemctl status lightsnow-bot${NC}"
+    echo -e "  - 启动服务: ${YELLOW}systemctl start lightsnow-bot${NC}"
+    echo -e "  - 停止服务: ${YELLOW}systemctl stop lightsnow-bot${NC}"
+    echo -e "  - 重启服务: ${YELLOW}systemctl restart lightsnow-bot${NC}"
+    echo -e "  - ${RED}查看实时日志:${NC} ${YELLOW}journalctl -u lightsnow-bot -f${NC}"
+    
+    echo -e "\n--- Napcat 管理 (Docker) ---"
+    echo -e "  - (先进入项目目录: cd ${PROJECT_DIR})"
+    echo -e "  - 停止服务: ${YELLOW}docker compose down${NC}"
+    echo -e "  - 启动服务: ${YELLOW}docker compose up -d${NC}"
+    echo -e "  - 查看日志: ${YELLOW}docker compose logs -f napcat${NC}"
     print_color "$BLUE" "========================================================\n"
 }
 
@@ -499,8 +505,9 @@ function main() {
     get_public_ip
     collect_user_config
     clone_robot_repo
-    configure_robot
-    create_and_deploy
+    setup_python_environment
+    create_and_start_systemd_service
+    deploy_napcat
     final_instructions
 
     # 所有步骤成功完成后，将成功标志设为1，以防止 cleanup_on_failure 函数执行清理
