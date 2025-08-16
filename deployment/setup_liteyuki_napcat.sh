@@ -401,7 +401,7 @@ function create_and_deploy() {
     cat > docker-compose.yml << EOF
 services:
   napcat:
-    image: mlikiowa/napcat-docker:latest
+    image: docker.gh-proxy.com/mlikiowa/napcat-docker:latest
     container_name: napcat
     restart: always
     network_mode: bridge
