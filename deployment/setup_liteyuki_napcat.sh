@@ -366,7 +366,6 @@ WORKDIR /app
 COPY requirements.txt .
 
 # 安装依赖，如果在中国则使用清华镜像源
-# 关键修复：将包名从 nonebot-cli 更正为 nb-cli
 RUN if [ "$IS_CHINA" = "1" ]; then \
         pip install --no-cache-dir nb-cli -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple; \
     else \
@@ -380,7 +379,8 @@ COPY . .
 EXPOSE $BOT_PORT
 
 # 启动命令
-CMD ["nb", "run", "--host", "0.0.0.0", "--port", "$BOT_PORT"]
+# 关键修复：nb run 命令会自动读取 .env 文件，无需额外参数
+CMD ["nb", "run"]
 EOF
     # 将 IS_CHINA 变量传递给 Docker build 过程
     sed -i "s/IS_CHINA=1/IS_CHINA=${IS_CHINA}/" Dockerfile
@@ -388,6 +388,7 @@ EOF
     
     cd ..
 }
+
 
 
 
